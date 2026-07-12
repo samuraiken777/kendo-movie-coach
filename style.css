@@ -304,6 +304,23 @@ main { padding: 8px 12px 24px; }
 .subEdit .timeRow button.del { background: #472a2c; color: #ff9a9e; }
 .subEdit .timeRow .tilde { color: var(--sub); }
 
+#dictBox summary {
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 14px;
+}
+#dictBox textarea {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #39424e;
+  background: var(--panel2);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 .sliderRow { margin: 14px 0; }
 .sliderRow label {
   display: flex;

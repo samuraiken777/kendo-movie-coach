@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>剣道ムービーコーチ</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎬</text></svg>">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -92,6 +92,13 @@
     <button id="whisperBtn" class="bigBtn">🎯 AIで字幕を作り直す</button>
     <div id="whisperStatus" class="hint" hidden></div>
   </div>
+
+  <details id="dictBox" class="infoBox">
+    <summary>📖 剣道用語の自動補正辞書</summary>
+    <p class="hint">音声認識の結果に自動で適用されます（例: 麺→面、中断→中段、冗談→上段、斬新→残心）。よくある誤変換があれば「誤→正」の形で1行ずつ追加してください（この端末に保存されます）。</p>
+    <textarea id="dictUser" rows="4" placeholder="例：&#10;麺がおいしい→面が惜しい&#10;誠意→正眼"></textarea>
+    <button id="dictApplyBtn" class="bigBtn">📖 今ある字幕に一括適用</button>
+  </details>
   <ul id="subList" class="itemList subEdit"><li class="empty">字幕がありません。下のボタンで追加できます。</li></ul>
   <button id="addSubBtn" class="bigBtn">＋ 現在位置に字幕を追加</button>
   <button id="toStep4" class="bigBtn primary">次へ：動画を書き出す ▶</button>
@@ -143,6 +150,6 @@
 </footer>
 
 <canvas id="exportCanvas" hidden></canvas>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

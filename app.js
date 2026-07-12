@@ -575,9 +575,10 @@ function startRecognition() {
     let interim = "";
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const res = e.results[i];
-      const text = res[0].transcript.trim();
+      let text = res[0].transcript.trim();
       if (res.isFinal) {
         if (text) {
+          text = applyKendoDict(text);
           const end = video.currentTime;
           const start = recState.utterStart != null
             ? recState.utterStart
@@ -710,6 +711,73 @@ $("addSubBtn").addEventListener("click", () => {
   renderSubList();
 });
 
+/* ---------------- 剣道用語の自動補正辞書 ---------------- */
+
+// 既定の補正ルール（誤認識されやすい語 → 剣道用語）。順に適用される。
+const KENDO_DICT_DEFAULT = [
+  ["麺", "面"],
+  ["メーン", "メン"],
+  ["美味しい", "惜しい"],
+  ["おいしい", "惜しい"],
+  ["中断", "中段"],
+  ["冗談", "上段"],
+  ["斬新", "残心"],
+  ["残身", "残心"],
+  ["銅", "胴"],
+  ["危険体", "気剣体"],
+  ["危険隊", "気剣体"],
+  ["打とつ", "打突"],
+  ["ダトツ", "打突"],
+  ["擦り足", "すり足"],
+  ["スリ足", "すり足"],
+  ["切返し", "切り返し"],
+  ["出ごて", "出小手"],
+  ["でごて", "出小手"],
+  ["つば競り合い", "鍔迫り合い"],
+  ["ツバゼリ合い", "鍔迫り合い"],
+  ["恵子", "稽古"],
+];
+
+function parseUserDict(text) {
+  const rules = [];
+  for (const line of String(text || "").split("\n")) {
+    const m = line.split(/→|⇒|,|，|\t/);
+    if (m.length >= 2) {
+      const from = m[0].trim(), to = m[1].trim();
+      if (from && to && from !== to) rules.push([from, to]);
+    }
+  }
+  return rules;
+}
+
+function getDict() {
+  // ユーザー定義を優先して先に適用
+  return [...parseUserDict($("dictUser").value), ...KENDO_DICT_DEFAULT];
+}
+
+function applyKendoDict(text) {
+  for (const [from, to] of getDict()) text = text.split(from).join(to);
+  return text;
+}
+
+// ユーザー辞書は端末に保存
+try {
+  $("dictUser").value = localStorage.getItem("kendoDictUser") || "";
+} catch (_) {}
+$("dictUser").addEventListener("input", () => {
+  try { localStorage.setItem("kendoDictUser", $("dictUser").value); } catch (_) {}
+});
+
+$("dictApplyBtn").addEventListener("click", () => {
+  let changed = 0;
+  for (const sub of state.subtitles) {
+    const fixed = applyKendoDict(sub.text);
+    if (fixed !== sub.text) { sub.text = fixed; changed++; }
+  }
+  renderSubList();
+  alert(changed ? `${changed}件の字幕を補正しました。` : "補正対象はありませんでした。");
+});
+
 /* ---------------- 高精度字幕（Whisper・完全オンデバイス） ---------------- */
 
 let whisperPipe = null;
@@ -720,6 +788,71 @@ function whisperStatus(msg) {
   const el = $("whisperStatus");
   el.hidden = false;
   el.textContent = msg;
+}
+
+// エネルギーベースの簡易VAD: 話している区間 [{start,end}]（秒）を返す
+// 無音・環境音の区間をWhisperに渡さないことで幻聴（「(音楽)」等）を防ぐ
+function findVoicedClips(f32, sr) {
+  const win = Math.round(sr * 0.03);
+  const energies = [];
+  for (let i = 0; i + win <= f32.length; i += win) {
+    let s = 0;
+    for (let j = i; j < i + win; j++) s += f32[j] * f32[j];
+    energies.push(Math.sqrt(s / win));
+  }
+  if (!energies.length) return [];
+  const sorted = [...energies].slice().sort((a, b) => a - b);
+  const noise = sorted[Math.floor(sorted.length * 0.2)];
+  const thr = Math.max(0.006, noise * 3);
+
+  const winSec = win / sr;
+  const raw = [];
+  let cur = null;
+  for (let i = 0; i < energies.length; i++) {
+    if (energies[i] >= thr) {
+      if (!cur) cur = { start: i * winSec, end: (i + 1) * winSec };
+      else cur.end = (i + 1) * winSec;
+    } else if (cur && i * winSec - cur.end > 0.5) {
+      raw.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) raw.push(cur);
+
+  const total = f32.length / sr;
+  const clips = [];
+  for (const r of raw) {
+    if (r.end - r.start < 0.35) continue;
+    const start = Math.max(0, r.start - 0.2);
+    const end = Math.min(total, r.end + 0.3);
+    if (clips.length && start - clips[clips.length - 1].end < 0.25) {
+      clips[clips.length - 1].end = end;
+    } else {
+      clips.push({ start, end });
+    }
+  }
+  // Whisperの1回あたり上限（25秒）で分割
+  const out = [];
+  for (const c of clips) {
+    let s = c.start;
+    while (c.end - s > 25) { out.push({ start: s, end: s + 25 }); s += 25; }
+    out.push({ start: s, end: c.end });
+  }
+  return out;
+}
+
+// Whisperが無音・雑音時に出しがちな定型句（幻聴）を除去
+const HALLUCINATION_PATTERNS = [
+  /^[（(\[【♪～\s].*[)）\]】♪～\s]$/,
+  /ご視聴ありがとう/,
+  /チャンネル登録/,
+  /高評価/,
+  /また会いましょう/,
+  /^字幕/,
+  /おやすみなさい/,
+];
+function isHallucination(text) {
+  return HALLUCINATION_PATTERNS.some((re) => re.test(text));
 }
 
 // Whisper入力用に16kHzモノラルへリサンプリング
@@ -768,34 +901,41 @@ $("whisperBtn").addEventListener("click", async () => {
 
     for (let i = 0; i < state.segments.length; i++) {
       const seg = state.segments[i];
-      whisperStatus(`音声を認識中… ${i + 1}/${state.segments.length}（画面が固まったように見えても処理中です）`);
-      await new Promise((r) => setTimeout(r, 50));
       const audioData = await toWhisperInput(seg.buffer);
-      const out = await whisperPipe(audioData, {
-        language: "japanese",
-        task: "transcribe",
-        return_timestamps: true,
-        chunk_length_s: 30,
-      });
+      // 話している区間だけを切り出して個別に認識（無音での幻聴を防ぎ、タイミングも正確になる）
+      const clips = findVoicedClips(audioData, 16000);
+      if (!clips.length) continue; // 発話が見つからなければ既存の字幕を残す
 
-      // このコメントの既存字幕（自動生成分）を置き換える。手動追加(segId=null)は残す
-      state.subtitles = state.subtitles.filter((s) => s.segId !== seg.id);
-      const chunks = out.chunks && out.chunks.length
-        ? out.chunks
-        : out.text ? [{ timestamp: [0, seg.buffer.duration], text: out.text }] : [];
-      for (const c of chunks) {
-        const text = (c.text || "").trim();
-        if (!text) continue;
-        const t0 = (c.timestamp && c.timestamp[0] != null) ? c.timestamp[0] : 0;
-        const t1 = (c.timestamp && c.timestamp[1] != null) ? c.timestamp[1] : seg.buffer.duration;
-        const s0 = seg.start + t0;
-        state.subtitles.push({
+      const newSubs = [];
+      for (let k = 0; k < clips.length; k++) {
+        const clip = clips[k];
+        whisperStatus(`音声を認識中… コメント${i + 1}/${state.segments.length} の ${k + 1}/${clips.length}（画面が固まったように見えても処理中です）`);
+        await new Promise((r) => setTimeout(r, 30));
+        const slice = audioData.subarray(
+          Math.floor(clip.start * 16000),
+          Math.floor(clip.end * 16000)
+        );
+        const out = await whisperPipe(slice, {
+          language: "japanese",
+          task: "transcribe",
+        });
+        let text = (out.text || "").trim();
+        if (!text || isHallucination(text)) continue;
+        text = applyKendoDict(text);
+        const s0 = seg.start + clip.start;
+        newSubs.push({
           id: state.nextId++,
           start: s0,
-          end: Math.max(s0 + 0.8, seg.start + t1),
+          end: Math.max(s0 + 0.8, seg.start + clip.end),
           text,
           segId: seg.id,
         });
+      }
+
+      if (newSubs.length) {
+        // このコメントの既存字幕（自動生成分）を置き換える。手動追加(segId=null)は残す
+        state.subtitles = state.subtitles.filter((s) => s.segId !== seg.id);
+        state.subtitles.push(...newSubs);
       }
     }
     state.subtitles.sort((a, b) => a.start - b.start);
