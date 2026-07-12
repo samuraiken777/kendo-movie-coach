@@ -160,7 +160,7 @@ seekBar.addEventListener("change", () => { seeking = false; });
 
 video.addEventListener("play", () => {
   playBtn.textContent = "⏸";
-  if (!exporting) scheduleCommentsFrom(video.currentTime);
+  if (!exporting && !recState.pendingRec && !recState.active) scheduleCommentsFrom(video.currentTime);
 });
 video.addEventListener("pause", () => {
   playBtn.textContent = "▶";
@@ -168,7 +168,9 @@ video.addEventListener("pause", () => {
   if (recState.active) stopRecording();
 });
 video.addEventListener("seeked", () => {
-  if (!video.paused && !exporting) scheduleCommentsFrom(video.currentTime);
+  if (!video.paused && !exporting && !recState.pendingRec && !recState.active) {
+    scheduleCommentsFrom(video.currentTime);
+  }
   updateTransport();
 });
 video.addEventListener("ended", () => {
@@ -303,6 +305,7 @@ function stopComments() {
 
 const recState = {
   active: false,
+  pendingRec: false,
   micStream: null,
   recorder: null,
   chunks: [],
@@ -333,38 +336,61 @@ $("recBtn").addEventListener("click", async () => {
 
 async function startRecording() {
   if (!state.videoLoaded) return;
-  await ensureAudioGraph();
-
+  recState.pendingRec = true;
   try {
-    if (!recState.micStream || !recState.micStream.active) {
-      recState.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-      });
+    if (video.currentTime >= state.duration - 0.05) video.currentTime = 0;
+
+    // iOS対策: タップの効力（user activation）が切れる前に、
+    // 再生開始とAudioContextの作成/再開を先に行う。
+    // getUserMediaを待ってからplay()すると、iOS Safariでは再生が却下される。
+    const graphPromise = ensureAudioGraph();
+    let playError = null;
+    const playPromise = video.play().catch((e) => { playError = e; });
+    await graphPromise;
+
+    try {
+      if (!recState.micStream || !recState.micStream.active) {
+        recState.micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+        });
+      }
+    } catch (err) {
+      video.pause();
+      alert("マイクを使用できません。Safariの設定でマイクを許可してください。\n" + err.message);
+      return;
     }
-  } catch (err) {
-    alert("マイクを使用できません。Safariの設定でマイクを許可してください。\n" + err.message);
-    return;
+
+    await playPromise;
+    // マイク許可ダイアログなどで一時停止された場合は再開する
+    // （一度タップで再生済みのため、2回目以降のplay()は許可される）
+    if (video.paused || playError) {
+      playError = null;
+      try { await video.play(); } catch (e) { playError = e; }
+    }
+    if (playError || video.paused) {
+      alert("動画の再生を開始できませんでした。もう一度「録音スタート」を押してください。");
+      return;
+    }
+
+    recState.segId = state.nextId++;
+    recState.segStart = video.currentTime;
+    recState.chunks = [];
+    recState.recogGotResult = false;
+    recState.interimText = "";
+
+    const mime = pickAudioMime();
+    recState.recorder = new MediaRecorder(recState.micStream, mime ? { mimeType: mime } : undefined);
+    recState.recorder.ondataavailable = (e) => { if (e.data.size) recState.chunks.push(e.data); };
+    recState.recorder.onstop = onRecorderStopped;
+
+    recState.active = true;
+    applyVolumes();
+    stopComments(); // 録音中は既存コメントを鳴らさない
+    recState.recorder.start();
+    if ($("useRecog").checked) startRecognition();
+  } finally {
+    recState.pendingRec = false;
   }
-
-  if (video.currentTime >= state.duration - 0.05) video.currentTime = 0;
-
-  recState.segId = state.nextId++;
-  recState.segStart = video.currentTime;
-  recState.chunks = [];
-  recState.recogGotResult = false;
-  recState.interimText = "";
-
-  const mime = pickAudioMime();
-  recState.recorder = new MediaRecorder(recState.micStream, mime ? { mimeType: mime } : undefined);
-  recState.recorder.ondataavailable = (e) => { if (e.data.size) recState.chunks.push(e.data); };
-  recState.recorder.onstop = onRecorderStopped;
-
-  recState.active = true;
-  applyVolumes();
-  recState.recorder.start();
-  if ($("useRecog").checked) startRecognition();
-
-  video.play();
 
   $("recBtn").textContent = "■ 録音ストップ";
   $("recBtn").classList.add("stop");
