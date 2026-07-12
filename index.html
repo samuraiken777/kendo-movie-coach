@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>剣道ムービーコーチ</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎬</text></svg>">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 
@@ -55,8 +55,10 @@
   <h2>Step 2　コメントを録音する</h2>
   <p class="hint">録音ボタンを押すと動画が再生され、マイク録音が始まります。止めたい場所で停止。録り直したい場所にシークしてもう一度録音すると、新しい録音が優先されます（イヤホン推奨）。</p>
 
-  <div class="row">
-    <label class="toggleRow"><input type="checkbox" id="muteWhileRec" checked> 録音中は試合の音を消す（エコー防止）</label>
+  <div class="sliderRow">
+    <label>録音中の試合の音量 <span id="recOrigVolLabel">70%</span></label>
+    <input type="range" id="recOrigVol" min="0" max="100" value="70">
+    <p class="hint small">スピーカーの音はエコーキャンセルで概ね除去されますが、確実なのはイヤホンです。</p>
   </div>
   <div class="row" id="recogRow">
     <label class="toggleRow"><input type="checkbox" id="useRecog" checked> 音声認識で字幕を自動生成する</label>
@@ -77,6 +79,19 @@
 <section id="step3" class="stepPanel" hidden>
   <h2>Step 3　字幕を確認・修正する</h2>
   <p class="hint">誤認識を直したり、時間をずらしたりできます。▶で該当場面を再生して確認できます。時間は「分:秒.小数」形式（例 1:23.5）。</p>
+
+  <div class="infoBox" id="whisperBox">
+    <b>🎯 字幕の精度が低いときは</b><br>
+    録音したコメント音声を、この端末の中でAI（Whisper）が聞き直して字幕を作り直します。音声が外部に送信されることはありません。初回のみAIモデルのダウンロードがあります（Wi-Fi推奨・2回目からは不要）。
+    <div class="sliderRow">
+      <select id="whisperModel">
+        <option value="onnx-community/whisper-base" selected>標準モデル（高精度・約80MB）</option>
+        <option value="onnx-community/whisper-tiny">軽量モデル（速い・約40MB）</option>
+      </select>
+    </div>
+    <button id="whisperBtn" class="bigBtn">🎯 AIで字幕を作り直す</button>
+    <div id="whisperStatus" class="hint" hidden></div>
+  </div>
   <ul id="subList" class="itemList subEdit"><li class="empty">字幕がありません。下のボタンで追加できます。</li></ul>
   <button id="addSubBtn" class="bigBtn">＋ 現在位置に字幕を追加</button>
   <button id="toStep4" class="bigBtn primary">次へ：動画を書き出す ▶</button>
@@ -93,7 +108,16 @@
   </div>
   <div class="sliderRow">
     <label>コメントの音量 <span id="commentVolLabel">100%</span></label>
-    <input type="range" id="commentVol" min="0" max="150" value="100">
+    <input type="range" id="commentVol" min="0" max="200" value="100">
+    <p class="hint small">コメント音声は自動で聞きやすい音量に補正されます。それでも小さい場合はここで上げてください。</p>
+  </div>
+  <div class="sliderRow">
+    <label>字幕の大きさ</label>
+    <select id="subSize">
+      <option value="0.055">標準</option>
+      <option value="0.075" selected>大きめ</option>
+      <option value="0.095">特大</option>
+    </select>
   </div>
   <div class="sliderRow">
     <label>書き出し解像度</label>
@@ -119,6 +143,6 @@
 </footer>
 
 <canvas id="exportCanvas" hidden></canvas>
-<script src="app.js"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>

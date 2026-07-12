@@ -166,6 +166,7 @@ main { padding: 8px 12px 24px; }
 .stepPanel { max-width: 640px; margin: 0 auto; }
 
 .hint { font-size: 13px; color: var(--sub); line-height: 1.6; }
+.hint.small { font-size: 11px; margin: 4px 0 0; }
 
 .bigBtn {
   display: block;

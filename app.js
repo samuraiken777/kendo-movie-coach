@@ -196,6 +196,16 @@ function updateSubOverlay() {
 
 setInterval(updateSubOverlay, 100);
 
+// 字幕プレビューの文字サイズを設定に合わせる
+function applyOverlaySize() {
+  const hPx = video.clientHeight || 200;
+  const px = Math.max(13, Math.round(hPx * Number($("subSize").value)));
+  subOverlay.style.fontSize = px + "px";
+}
+$("subSize").addEventListener("change", applyOverlaySize);
+window.addEventListener("resize", applyOverlaySize);
+video.addEventListener("loadeddata", applyOverlaySize);
+
 /* ---------------- Web Audio グラフ ---------------- */
 
 const audio = {
@@ -227,10 +237,17 @@ async function ensureAudioGraph() {
 
 function applyVolumes() {
   if (!audio.ctx) return;
-  const muteOrig = recState.active && $("muteWhileRec").checked;
-  audio.origGain.gain.value = muteOrig ? 0 : state.volumes.original;
+  // 録音中は「録音中の試合の音量」スライダー、それ以外はミックス設定を使う
+  audio.origGain.gain.value = recState.active
+    ? Number($("recOrigVol").value) / 100
+    : state.volumes.original;
   audio.commentGain.gain.value = state.volumes.comment;
 }
+
+$("recOrigVol").addEventListener("input", () => {
+  $("recOrigVolLabel").textContent = $("recOrigVol").value + "%";
+  applyVolumes();
+});
 
 /* --- コメント音声のスケジュール再生（プレビュー・書き出し共用） --- */
 
@@ -254,8 +271,10 @@ function scheduleCommentsFrom(videoTime) {
     const offset = Math.max(0, videoTime - seg.start);
     const when = seg.start > videoTime ? now + (seg.start - videoTime) : now;
 
+    // 自動音量補正を基準ゲインとして適用
+    const base = seg.gain || 1;
     // 新しい録音が優先：後から録った区間と重なる部分はミュート
-    g.gain.setValueAtTime(1, now);
+    g.gain.setValueAtTime(base, now);
     for (const other of state.segments) {
       if (other.createdAt <= seg.createdAt || !other.buffer) continue;
       const os = Math.max(other.start, seg.start);
@@ -265,7 +284,7 @@ function scheduleCommentsFrom(videoTime) {
       const tOff = now + (oe - videoTime);
       if (tOff <= now) continue;
       g.gain.setValueAtTime(0, Math.max(now, tOn));
-      g.gain.setValueAtTime(1, tOff);
+      g.gain.setValueAtTime(base, tOff);
     }
 
     src.start(when, offset);
@@ -419,6 +438,7 @@ async function onRecorderStopped() {
     id: recState.segId,
     start: recState.segStart,
     buffer,
+    gain: normalizeGain(buffer),
     url: URL.createObjectURL(blob),
     createdAt: Date.now(),
   };
@@ -434,6 +454,20 @@ async function onRecorderStopped() {
   state.segments.push(seg);
   state.segments.sort((a, b) => a.start - b.start);
   renderSegList();
+}
+
+// 話し声のRMSから、聞きやすい音量へ引き上げる自動補正ゲインを求める
+function normalizeGain(buffer) {
+  const d = buffer.getChannelData(0);
+  const step = Math.max(1, Math.floor(d.length / 20000));
+  let sum = 0, n = 0;
+  for (let i = 0; i < d.length; i += step) {
+    const v = Math.abs(d[i]);
+    if (v > 0.004) { sum += v * v; n++; }
+  }
+  if (!n) return 1;
+  const rms = Math.sqrt(sum / n);
+  return Math.min(8, Math.max(1, 0.12 / rms));
 }
 
 function warnRecogConflict(msg) {
@@ -650,6 +684,107 @@ $("addSubBtn").addEventListener("click", () => {
   renderSubList();
 });
 
+/* ---------------- 高精度字幕（Whisper・完全オンデバイス） ---------------- */
+
+let whisperPipe = null;
+let whisperModelId = null;
+let whisperRunning = false;
+
+function whisperStatus(msg) {
+  const el = $("whisperStatus");
+  el.hidden = false;
+  el.textContent = msg;
+}
+
+// Whisper入力用に16kHzモノラルへリサンプリング
+async function toWhisperInput(buffer) {
+  const len = Math.ceil(buffer.duration * 16000);
+  const off = new OfflineAudioContext(1, len, 16000);
+  const src = off.createBufferSource();
+  src.buffer = buffer;
+  src.connect(off.destination);
+  src.start();
+  const rendered = await off.startRendering();
+  return rendered.getChannelData(0);
+}
+
+$("whisperBtn").addEventListener("click", async () => {
+  if (whisperRunning) return;
+  if (state.segments.length === 0) {
+    alert("録音がありません。先にStep 2でコメントを録音してください。");
+    return;
+  }
+  whisperRunning = true;
+  $("whisperBtn").disabled = true;
+  try {
+    const modelId = $("whisperModel").value;
+    if (!whisperPipe || whisperModelId !== modelId) {
+      whisperStatus("AIライブラリを読み込み中…");
+      const { pipeline } = await import(
+        "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.2/dist/transformers.min.js"
+      );
+      let lastPct = -1;
+      whisperStatus("AIモデルを準備中…（初回はダウンロードに数分かかります）");
+      whisperPipe = await pipeline("automatic-speech-recognition", modelId, {
+        dtype: "q8",
+        progress_callback: (p) => {
+          if (p.status === "progress" && p.file && p.file.endsWith(".onnx")) {
+            const pct = Math.round(p.progress || 0);
+            if (pct !== lastPct) {
+              lastPct = pct;
+              whisperStatus(`AIモデルをダウンロード中… ${pct}%（初回のみ）`);
+            }
+          }
+        },
+      });
+      whisperModelId = modelId;
+    }
+
+    for (let i = 0; i < state.segments.length; i++) {
+      const seg = state.segments[i];
+      whisperStatus(`音声を認識中… ${i + 1}/${state.segments.length}（画面が固まったように見えても処理中です）`);
+      await new Promise((r) => setTimeout(r, 50));
+      const audioData = await toWhisperInput(seg.buffer);
+      const out = await whisperPipe(audioData, {
+        language: "japanese",
+        task: "transcribe",
+        return_timestamps: true,
+        chunk_length_s: 30,
+      });
+
+      // このコメントの既存字幕（自動生成分）を置き換える。手動追加(segId=null)は残す
+      state.subtitles = state.subtitles.filter((s) => s.segId !== seg.id);
+      const chunks = out.chunks && out.chunks.length
+        ? out.chunks
+        : out.text ? [{ timestamp: [0, seg.buffer.duration], text: out.text }] : [];
+      for (const c of chunks) {
+        const text = (c.text || "").trim();
+        if (!text) continue;
+        const t0 = (c.timestamp && c.timestamp[0] != null) ? c.timestamp[0] : 0;
+        const t1 = (c.timestamp && c.timestamp[1] != null) ? c.timestamp[1] : seg.buffer.duration;
+        const s0 = seg.start + t0;
+        state.subtitles.push({
+          id: state.nextId++,
+          start: s0,
+          end: Math.max(s0 + 0.8, seg.start + t1),
+          text,
+          segId: seg.id,
+        });
+      }
+    }
+    state.subtitles.sort((a, b) => a.start - b.start);
+    renderSubList();
+    whisperStatus("✅ 完了しました。字幕を確認・修正してください。");
+  } catch (err) {
+    console.error(err);
+    whisperStatus("⚠️ エラーが発生しました: " + (err && err.message ? err.message : err) +
+      "（通信環境を確認するか、軽量モデルをお試しください）");
+  } finally {
+    whisperRunning = false;
+    $("whisperBtn").disabled = false;
+  }
+});
+
 /* ---------------- Step 4: 書き出し ---------------- */
 
 $("origVol").addEventListener("input", () => {
@@ -753,7 +888,7 @@ async function startExport() {
   }
   scheduleCommentsFrom(0);
 
-  const fontSize = Math.round(h * 0.055);
+  const fontSize = Math.round(h * Number($("subSize").value));
   const drawFrame = () => {
     if (!exporting) return;
     cctx.drawImage(video, 0, 0, w, h);
