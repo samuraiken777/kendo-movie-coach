@@ -16,21 +16,29 @@
 
 マイク使用にはHTTPSが必須のため、iPhone実機テストはGitHub Pages上で行う。
 
+ローカルのgitリポジトリはコミット済み。GitHubへの公開は次の手順で行う。
+
+### 方法A: GitHub CLI（未インストールなら `winget install GitHub.cli` → `gh auth login`）
+
 ```powershell
 cd "C:\Users\samur\Dropbox\Claude Code\Movie coach"
-git init
-git add index.html style.css app.js README.md
-git commit -m "kendo movie coach v1"
-
-# GitHub CLI を使う場合（推奨）
 gh repo create kendo-movie-coach --public --source . --push
-
 # Pages を有効化（main ブランチのルートを公開）
-gh api repos/{owner}/kendo-movie-coach/pages -X POST -f "source[branch]=main" -f "source[path]=/"
+gh api repos/{owner}/kendo-movie-coach/pages -X POST -f "source[branch]=master" -f "source[path]=/"
 ```
 
+### 方法B: ブラウザで手動
+
+1. github.com → New repository →「kendo-movie-coach」(Public) を作成
+2. 表示されるコマンドに従って push:
+   ```powershell
+   cd "C:\Users\samur\Dropbox\Claude Code\Movie coach"
+   git remote add origin https://github.com/<ユーザー名>/kendo-movie-coach.git
+   git push -u origin master
+   ```
+3. リポジトリの Settings → Pages → Branch: `master` / `/ (root)` → Save
+
 数分後に `https://<ユーザー名>.github.io/kendo-movie-coach/` で公開される。
-（gh CLI がない場合: github.com で新規リポジトリ作成 → ファイルをアップロード → Settings → Pages → Branch: main / root → Save）
 
 更新時は:
 
