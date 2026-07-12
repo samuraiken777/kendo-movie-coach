@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>剣道ムービーコーチ</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎬</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>🎬 剣道ムービーコーチ</h1>
+  <nav id="stepNav">
+    <button class="stepBtn active" data-step="1"><span class="num">1</span>動画</button>
+    <button class="stepBtn" data-step="2" disabled><span class="num">2</span>録音</button>
+    <button class="stepBtn" data-step="3" disabled><span class="num">3</span>字幕</button>
+    <button class="stepBtn" data-step="4" disabled><span class="num">4</span>書き出し</button>
+  </nav>
+</header>
+
+<!-- 動画プレーヤー（全ステップ共通） -->
+<div id="videoWrap" hidden>
+  <div id="videoBox">
+    <video id="video" playsinline webkit-playsinline preload="metadata"></video>
+    <div id="subOverlay"></div>
+    <div id="recBadge" hidden><span class="dot"></span><span id="recTime">0:00</span> 録音中</div>
+  </div>
+  <div id="transport">
+    <button id="playBtn" class="iconBtn">▶</button>
+    <input type="range" id="seekBar" min="0" max="100" step="0.1" value="0">
+    <span id="timeLabel">0:00 / 0:00</span>
+  </div>
+</div>
+
+<main>
+
+<!-- Step 1: 動画選択 -->
+<section id="step1" class="stepPanel">
+  <h2>Step 1　試合動画を選ぶ</h2>
+  <p class="hint">iPhoneで撮影したMP4/MOV（1080p以下・30fps・5分以内・100MB以下）を選んでください。動画はこの端末の中だけで処理され、外部には送信されません。</p>
+  <label id="fileLabel" class="bigBtn">
+    📂 動画ファイルを選ぶ
+    <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*" hidden>
+  </label>
+  <div id="videoInfo" class="infoBox" hidden></div>
+  <div id="fileWarn" class="warnBox" hidden></div>
+  <button id="toStep2" class="bigBtn primary" hidden>次へ：コメントを録音する ▶</button>
+</section>
+
+<!-- Step 2: 録音 -->
+<section id="step2" class="stepPanel" hidden>
+  <h2>Step 2　コメントを録音する</h2>
+  <p class="hint">録音ボタンを押すと動画が再生され、マイク録音が始まります。止めたい場所で停止。録り直したい場所にシークしてもう一度録音すると、新しい録音が優先されます（イヤホン推奨）。</p>
+
+  <div class="row">
+    <label class="toggleRow"><input type="checkbox" id="muteWhileRec" checked> 録音中は試合の音を消す（エコー防止）</label>
+  </div>
+  <div class="row" id="recogRow">
+    <label class="toggleRow"><input type="checkbox" id="useRecog" checked> 音声認識で字幕を自動生成する</label>
+  </div>
+  <div id="recogWarn" class="warnBox" hidden></div>
+
+  <button id="recBtn" class="bigBtn record">● 録音スタート</button>
+  <div id="liveRecog" class="liveRecog" hidden></div>
+
+  <h3>録音済みコメント</h3>
+  <div id="segTimeline" class="timeline"></div>
+  <ul id="segList" class="itemList"><li class="empty">まだ録音がありません</li></ul>
+
+  <button id="toStep3" class="bigBtn primary">次へ：字幕を確認する ▶</button>
+</section>
+
+<!-- Step 3: 字幕編集 -->
+<section id="step3" class="stepPanel" hidden>
+  <h2>Step 3　字幕を確認・修正する</h2>
+  <p class="hint">誤認識を直したり、時間をずらしたりできます。▶で該当場面を再生して確認できます。時間は「分:秒.小数」形式（例 1:23.5）。</p>
+  <ul id="subList" class="itemList subEdit"><li class="empty">字幕がありません。下のボタンで追加できます。</li></ul>
+  <button id="addSubBtn" class="bigBtn">＋ 現在位置に字幕を追加</button>
+  <button id="toStep4" class="bigBtn primary">次へ：動画を書き出す ▶</button>
+</section>
+
+<!-- Step 4: 書き出し -->
+<section id="step4" class="stepPanel" hidden>
+  <h2>Step 4　動画を書き出す</h2>
+  <p class="hint">再生しながら確認して、音量バランスを調整してから書き出してください。書き出しは動画の長さと同じ時間がかかります（5分の動画なら約5分）。<b>書き出し中は画面を消したり他のアプリに切り替えたりしないでください。</b></p>
+
+  <div class="sliderRow">
+    <label>試合の音量 <span id="origVolLabel">100%</span></label>
+    <input type="range" id="origVol" min="0" max="150" value="100">
+  </div>
+  <div class="sliderRow">
+    <label>コメントの音量 <span id="commentVolLabel">100%</span></label>
+    <input type="range" id="commentVol" min="0" max="150" value="100">
+  </div>
+  <div class="sliderRow">
+    <label>書き出し解像度</label>
+    <select id="exportRes">
+      <option value="source">元のサイズ（最大1080p）</option>
+      <option value="720">720p（軽量・高速）</option>
+    </select>
+  </div>
+
+  <button id="exportBtn" class="bigBtn primary">🎬 書き出しスタート</button>
+  <div id="exportProgress" hidden>
+    <div class="progressOuter"><div id="progressBar" class="progressInner"></div></div>
+    <p id="progressText">書き出し中… 0%</p>
+    <button id="cancelExportBtn" class="bigBtn">キャンセル</button>
+  </div>
+  <div id="exportResult" class="infoBox" hidden></div>
+</section>
+
+</main>
+
+<footer>
+  <p>動画・音声は端末内でのみ処理されます（外部送信なし）。ページを再読み込みすると作業内容は消えます。</p>
+</footer>
+
+<canvas id="exportCanvas" hidden></canvas>
+<script src="app.js"></script>
+</body>
+</html>
