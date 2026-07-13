@@ -695,7 +695,8 @@ function renderSubList() {
     let taOrig = sub.text;
     ta.addEventListener("focus", () => { taOrig = ta.value; });
     ta.addEventListener("change", () => {
-      offerDictRule(taOrig, ta.value);
+      sub.text = ta.value; // 登録の選択にかかわらず修正は必ず反映
+      offerDictRule(taOrig, ta.value, wrap);
       taOrig = ta.value;
     });
 
@@ -898,20 +899,39 @@ function extractCorrection(before, after) {
   const from = before.slice(p, before.length - s).trim();
   const to = after.slice(p, after.length - s).trim();
   if (!from || !to || from === to) return null;
-  if (from.length > 12 || to.length > 12) return null;
+  if (from.length > 9 || to.length > 9) return null; // 10文字以上の変更は文の書き換えとみなす
   if (from.includes("\n") || to.includes("\n")) return null;
   return [from, to];
 }
 
-function offerDictRule(before, after) {
+// 字幕修正の直下に「辞書に登録しますか？」のバーを出す。
+// どちらを選んでも修正テキストには触れず、画面もスクロールしない。
+function offerDictRule(before, after, host) {
   const pair = extractCorrection(before, after);
   if (!pair) return;
   const [from, to] = pair;
   if (applyKendoDict(from) === to) return; // すでに辞書で直る修正は聞かない
-  if (!confirm(`この修正を辞書に登録しますか？\n\n「${from}」→「${to}」\n\n登録すると、今後の文字起こしで自動的に置き換えられます。`)) return;
-  const cur = $("dictUser").value.trim();
-  $("dictUser").value = (cur ? cur + "\n" : "") + `${from}→${to}`;
-  try { localStorage.setItem("kendoDictUser", $("dictUser").value); } catch (_) {}
+  const old = host.querySelector(".dictOffer");
+  if (old) old.remove(); // 続けて直した場合は最新の提案だけ表示
+
+  const box = document.createElement("div");
+  box.className = "dictOffer";
+  const msg = document.createElement("span");
+  msg.textContent = `「${from}」→「${to}」を辞書に登録しますか？`;
+  const yes = document.createElement("button");
+  yes.textContent = "登録する";
+  yes.onclick = () => {
+    const cur = $("dictUser").value.trim();
+    $("dictUser").value = (cur ? cur + "\n" : "") + `${from}→${to}`;
+    try { localStorage.setItem("kendoDictUser", $("dictUser").value); } catch (_) {}
+    box.remove();
+  };
+  const no = document.createElement("button");
+  no.textContent = "登録しない";
+  no.className = "no";
+  no.onclick = () => box.remove();
+  box.append(msg, yes, no);
+  host.appendChild(box);
 }
 
 // 直接補正ルールも端末に保存

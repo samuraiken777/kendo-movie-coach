@@ -311,6 +311,34 @@ main { padding: 8px 12px 24px; }
   color: var(--sub);
   margin-top: 10px;
 }
+.dictOffer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #16324a;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.dictOffer span { flex: 1 1 100%; }
+.dictOffer button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--accent);
+  color: #fff;
+}
+.dictOffer button.no {
+  background: var(--panel2);
+  color: var(--sub);
+}
+
 .builtinList {
   list-style: none;
   padding: 6px 0 0;
