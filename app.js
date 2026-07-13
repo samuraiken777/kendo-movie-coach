@@ -28,8 +28,8 @@ const state = {
 function fmtTime(t) {
   if (!isFinite(t) || t < 0) t = 0;
   const m = Math.floor(t / 60);
-  const s = t - m * 60;
-  return `${m}:${s.toFixed(1).padStart(4, "0")}`;
+  const s = Math.floor(t - m * 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 function fmtTimeShort(t) {
   const m = Math.floor(t / 60);
@@ -718,9 +718,9 @@ $("addSubBtn").addEventListener("click", () => {
   renderSubList();
 });
 
-/* ---------------- 剣道用語の自動補正辞書 ---------------- */
+/* ---------------- 剣道用語辞書（統合・すべて編集可） ---------------- */
 
-// 既定の補正ルール（誤認識されやすい語 → 剣道用語）。順に適用される。
+// 初期セット。初回起動時にユーザー辞書へ取り込まれ、以後は自由に編集・削除できる。
 const KENDO_DICT_DEFAULT = [
   ["麺", "面"],
   ["メーン", "メン"],
@@ -734,7 +734,7 @@ const KENDO_DICT_DEFAULT = [
   ["危険体", "気剣体"],
   ["危険隊", "気剣体"],
   ["打とつ", "打突"],
-  ["ダトツ", "打突"],
+  ["だとつ", "打突"],
   ["擦り足", "すり足"],
   ["スリ足", "すり足"],
   ["切返し", "切り返し"],
@@ -746,7 +746,6 @@ const KENDO_DICT_DEFAULT = [
   ["つばぜり合い", "鍔迫り合い"],
   ["恵子", "稽古"],
   ["そんきょ", "蹲踞"],
-  ["ソンキョ", "蹲踞"],
   ["せいがん", "正眼"],
   ["きりかえし", "切り返し"],
   ["じげいこ", "地稽古"],
@@ -771,42 +770,70 @@ const KENDO_DICT_DEFAULT = [
   ["有効だとつ", "有効打突"],
 ];
 
-function parseUserDict(text) {
-  const rules = [];
-  for (const line of String(text || "").split("\n")) {
-    const m = line.split(/→|⇒|,|，|\t/);
-    if (m.length >= 2) {
-      const from = m[0].trim(), to = m[1].trim();
-      if (from && to && from !== to) rules.push([from, to]);
-    }
-  }
-  return rules;
-}
-
 const toKatakana = (s) => s.replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
 const toHiragana = (s) => s.replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+const isKanaOnly = (s) => /^[ぁ-ゖァ-ヶー・]+$/.test(s);
 
-// ユーザー登録の単語（{w: 単語, r: 読みがな}）
-let userWords = [];
-try { userWords = JSON.parse(localStorage.getItem("kendoWordsUser") || "[]"); } catch (_) {}
-function saveUserWords() {
-  try { localStorage.setItem("kendoWordsUser", JSON.stringify(userWords)); } catch (_) {}
+// かな表記のゆれを吸収した重複判定キー
+function ruleKey(from, to) {
+  return (isKanaOnly(from) ? toHiragana(from) : from) + "→" + to;
+}
+function normFrom(from) {
+  return isKanaOnly(from) ? toHiragana(from) : from;
+}
+
+function addDictRule(from, to, replaceSameFrom = true) {
+  from = String(from).trim();
+  to = String(to).trim();
+  if (!from || !to || from === to) return false;
+  const key = ruleKey(from, to);
+  if (dictRules.some((r) => ruleKey(r.from, r.to) === key)) return false;
+  if (replaceSameFrom) {
+    // 同じ誤変換に対する古いルールは新しい登録で置き換える
+    dictRules = dictRules.filter((r) => normFrom(r.from) !== normFrom(from));
+  }
+  dictRules.push({ from, to });
+  return true;
+}
+function saveDictRules() {
+  try { localStorage.setItem("kendoRules", JSON.stringify(dictRules)); } catch (_) {}
+}
+
+// 読み込み。初回は「初期セット＋旧形式データ」から辞書を作る
+let dictRules = null;
+try { dictRules = JSON.parse(localStorage.getItem("kendoRules") || "null"); } catch (_) {}
+if (!Array.isArray(dictRules)) {
+  dictRules = [];
+  const seed = [];
+  try {
+    for (const e of JSON.parse(localStorage.getItem("kendoWordsUser") || "[]")) {
+      if (e && e.w && e.r) seed.push([e.r, e.w]);
+    }
+  } catch (_) {}
+  try {
+    for (const line of (localStorage.getItem("kendoDictUser") || "").split("\n")) {
+      const m = line.split(/→|⇒|,|，|\t/);
+      if (m.length >= 2 && m[0].trim() && m[1].trim()) seed.push([m[0].trim(), m[1].trim()]);
+    }
+  } catch (_) {}
+  seed.push(...KENDO_DICT_DEFAULT);
+  for (const [f, t] of seed) addDictRule(f, t, false);
+  saveDictRules();
 }
 
 function getDict() {
   const rules = [];
-  // 1) 登録単語: 読みがな（ひらがな・カタカナ両方）→ 単語
-  for (const { w, r } of userWords) {
-    if (!w || !r) continue;
-    const hira = toHiragana(r);
-    const kata = toKatakana(r);
-    if (hira !== w) rules.push([hira, w]);
-    if (kata !== w && kata !== hira) rules.push([kata, w]);
+  for (const { from, to } of dictRules) {
+    // かなだけのルール（3文字以上）はひらがな・カタカナ両表記に対応
+    if (isKanaOnly(from) && from.length >= 3) {
+      const h = toHiragana(from);
+      const k = toKatakana(from);
+      if (h !== to) rules.push([h, to]);
+      if (k !== to && k !== h) rules.push([k, to]);
+    } else {
+      rules.push([from, to]);
+    }
   }
-  // 2) 直接補正ルール（誤→正）
-  rules.push(...parseUserDict($("dictUser").value));
-  // 3) 組み込みルール
-  rules.push(...KENDO_DICT_DEFAULT);
   // 長いパターンから先に適用（部分一致による誤置換を防ぐ）
   rules.sort((a, b) => b[0].length - a[0].length);
   return rules;
@@ -820,34 +847,34 @@ function applyKendoDict(text) {
 function renderDictList() {
   const ul = $("dictList");
   ul.innerHTML = "";
-  if (userWords.length === 0) {
-    ul.innerHTML = '<li class="empty">登録された単語はまだありません</li>';
+  if (dictRules.length === 0) {
+    ul.innerHTML = '<li class="empty">ルールがありません。上の欄から追加できます。</li>';
     return;
   }
-  userWords.forEach((entry, idx) => {
+  dictRules.forEach((rule, idx) => {
     const li = document.createElement("li");
     const row = document.createElement("div");
     row.className = "segRow";
     const info = document.createElement("span");
     info.className = "segInfo";
-    info.textContent = `${entry.w}（${entry.r}）`;
+    info.textContent = `${rule.from} → ${rule.to}`;
     const edit = document.createElement("button");
     edit.textContent = "編集";
     edit.onclick = () => {
       // 入力欄に戻して編集→「＋追加」で再登録
-      $("dictWord").value = entry.w;
-      $("dictReading").value = entry.r;
-      userWords.splice(idx, 1);
-      saveUserWords();
+      $("dictFrom").value = rule.from;
+      $("dictTo").value = rule.to;
+      dictRules.splice(idx, 1);
+      saveDictRules();
       renderDictList();
-      $("dictWord").focus();
+      $("dictFrom").focus();
     };
     const del = document.createElement("button");
     del.textContent = "削除";
     del.className = "del";
     del.onclick = () => {
-      userWords.splice(idx, 1);
-      saveUserWords();
+      dictRules.splice(idx, 1);
+      saveDictRules();
       renderDictList();
     };
     row.append(info, edit, del);
@@ -857,33 +884,24 @@ function renderDictList() {
 }
 
 $("dictAddBtn").addEventListener("click", () => {
-  const w = $("dictWord").value.trim();
-  const r = $("dictReading").value.trim();
-  if (!w || !r) {
-    alert("単語と読みがなの両方を入力してください。");
+  const f = $("dictFrom").value.trim();
+  const t = $("dictTo").value.trim();
+  if (!f || !t) {
+    alert("「誤変換・読みがな」と「正しい語」の両方を入力してください。");
     return;
   }
-  if (!/^[ぁ-ゖァ-ヶー・\s]+$/.test(r)) {
-    alert("読みがなは、ひらがな・カタカナで入力してください。");
+  if (f === t) {
+    alert("同じ内容です。変換前と変換後は違う表記にしてください。");
     return;
   }
-  const i = userWords.findIndex((e) => e.w === w);
-  if (i >= 0) userWords[i] = { w, r };
-  else userWords.push({ w, r });
-  saveUserWords();
+  addDictRule(f, t);
+  saveDictRules();
   renderDictList();
-  $("dictWord").value = "";
-  $("dictReading").value = "";
+  $("dictFrom").value = "";
+  $("dictTo").value = "";
 });
 
 renderDictList();
-
-// 組み込みルールの一覧表示
-for (const [from, to] of KENDO_DICT_DEFAULT) {
-  const li = document.createElement("li");
-  li.textContent = `${from} → ${to}`;
-  $("dictBuiltinList").appendChild(li);
-}
 
 // 字幕の手動修正から補正ルールを抽出する
 // 前後の共通部分を除いた「変わった箇所」を誤→正のペアとして取り出す
@@ -921,9 +939,9 @@ function offerDictRule(before, after, host) {
   const yes = document.createElement("button");
   yes.textContent = "登録する";
   yes.onclick = () => {
-    const cur = $("dictUser").value.trim();
-    $("dictUser").value = (cur ? cur + "\n" : "") + `${from}→${to}`;
-    try { localStorage.setItem("kendoDictUser", $("dictUser").value); } catch (_) {}
+    addDictRule(from, to);
+    saveDictRules();
+    renderDictList();
     box.remove();
   };
   const no = document.createElement("button");
@@ -933,14 +951,6 @@ function offerDictRule(before, after, host) {
   box.append(msg, yes, no);
   host.appendChild(box);
 }
-
-// 直接補正ルールも端末に保存
-try {
-  $("dictUser").value = localStorage.getItem("kendoDictUser") || "";
-} catch (_) {}
-$("dictUser").addEventListener("input", () => {
-  try { localStorage.setItem("kendoDictUser", $("dictUser").value); } catch (_) {}
-});
 
 $("dictApplyBtn").addEventListener("click", () => {
   let changed = 0;
