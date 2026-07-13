@@ -692,6 +692,12 @@ function renderSubList() {
     const ta = document.createElement("textarea");
     ta.value = sub.text;
     ta.oninput = () => { sub.text = ta.value; };
+    let taOrig = sub.text;
+    ta.addEventListener("focus", () => { taOrig = ta.value; });
+    ta.addEventListener("change", () => {
+      offerDictRule(taOrig, ta.value);
+      taOrig = ta.value;
+    });
 
     wrap.append(timeRow, ta);
     li.appendChild(wrap);
@@ -735,7 +741,33 @@ const KENDO_DICT_DEFAULT = [
   ["でごて", "出小手"],
   ["つば競り合い", "鍔迫り合い"],
   ["ツバゼリ合い", "鍔迫り合い"],
+  ["つばぜりあい", "鍔迫り合い"],
+  ["つばぜり合い", "鍔迫り合い"],
   ["恵子", "稽古"],
+  ["そんきょ", "蹲踞"],
+  ["ソンキョ", "蹲踞"],
+  ["せいがん", "正眼"],
+  ["きりかえし", "切り返し"],
+  ["じげいこ", "地稽古"],
+  ["自稽古", "地稽古"],
+  ["かかり稽古", "掛かり稽古"],
+  ["すぶり", "素振り"],
+  ["ぬきどう", "抜き胴"],
+  ["かえしどう", "返し胴"],
+  ["ひきめん", "引き面"],
+  ["あいめん", "相面"],
+  ["でばな", "出ばな"],
+  ["おうじわざ", "応じ技"],
+  ["応じわざ", "応じ技"],
+  ["しかけわざ", "仕掛け技"],
+  ["仕掛けわざ", "仕掛け技"],
+  ["コテ", "小手"],
+  ["ツキ", "突き"],
+  ["剣線", "剣先"],
+  ["けんせん", "剣先"],
+  ["一則一刀", "一足一刀"],
+  ["いっそくいっとう", "一足一刀"],
+  ["有効だとつ", "有効打突"],
 ];
 
 function parseUserDict(text) {
@@ -798,6 +830,17 @@ function renderDictList() {
     const info = document.createElement("span");
     info.className = "segInfo";
     info.textContent = `${entry.w}（${entry.r}）`;
+    const edit = document.createElement("button");
+    edit.textContent = "編集";
+    edit.onclick = () => {
+      // 入力欄に戻して編集→「＋追加」で再登録
+      $("dictWord").value = entry.w;
+      $("dictReading").value = entry.r;
+      userWords.splice(idx, 1);
+      saveUserWords();
+      renderDictList();
+      $("dictWord").focus();
+    };
     const del = document.createElement("button");
     del.textContent = "削除";
     del.className = "del";
@@ -806,7 +849,7 @@ function renderDictList() {
       saveUserWords();
       renderDictList();
     };
-    row.append(info, del);
+    row.append(info, edit, del);
     li.appendChild(row);
     ul.appendChild(li);
   });
@@ -833,6 +876,43 @@ $("dictAddBtn").addEventListener("click", () => {
 });
 
 renderDictList();
+
+// 組み込みルールの一覧表示
+for (const [from, to] of KENDO_DICT_DEFAULT) {
+  const li = document.createElement("li");
+  li.textContent = `${from} → ${to}`;
+  $("dictBuiltinList").appendChild(li);
+}
+
+// 字幕の手動修正から補正ルールを抽出する
+// 前後の共通部分を除いた「変わった箇所」を誤→正のペアとして取り出す
+function extractCorrection(before, after) {
+  if (before === after) return null;
+  let p = 0;
+  while (p < before.length && p < after.length && before[p] === after[p]) p++;
+  let s = 0;
+  while (
+    s < before.length - p && s < after.length - p &&
+    before[before.length - 1 - s] === after[after.length - 1 - s]
+  ) s++;
+  const from = before.slice(p, before.length - s).trim();
+  const to = after.slice(p, after.length - s).trim();
+  if (!from || !to || from === to) return null;
+  if (from.length > 12 || to.length > 12) return null;
+  if (from.includes("\n") || to.includes("\n")) return null;
+  return [from, to];
+}
+
+function offerDictRule(before, after) {
+  const pair = extractCorrection(before, after);
+  if (!pair) return;
+  const [from, to] = pair;
+  if (applyKendoDict(from) === to) return; // すでに辞書で直る修正は聞かない
+  if (!confirm(`この修正を辞書に登録しますか？\n\n「${from}」→「${to}」\n\n登録すると、今後の文字起こしで自動的に置き換えられます。`)) return;
+  const cur = $("dictUser").value.trim();
+  $("dictUser").value = (cur ? cur + "\n" : "") + `${from}→${to}`;
+  try { localStorage.setItem("kendoDictUser", $("dictUser").value); } catch (_) {}
+}
 
 // 直接補正ルールも端末に保存
 try {

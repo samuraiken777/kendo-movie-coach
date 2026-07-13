@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>剣道ムービーコーチ</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎬</text></svg>">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -80,9 +80,13 @@
   <h2>Step 3　字幕を確認・修正する</h2>
   <p class="hint">誤認識を直したり、時間をずらしたりできます。▶で該当場面を再生して確認できます。時間は「分:秒.小数」形式（例 1:23.5）。</p>
 
+  <ul id="subList" class="itemList subEdit"><li class="empty">字幕がありません。下のボタンで追加できます。</li></ul>
+  <button id="addSubBtn" class="bigBtn">＋ 現在位置に字幕を追加</button>
+  <button id="toStep4" class="bigBtn primary">次へ：動画を書き出す ▶</button>
+
   <div class="infoBox" id="dictBox">
     <b>📖 剣道用語辞書</b>
-    <p class="hint">用語と読みがなを登録すると、読みがな（ひらがな・カタカナ）のまま認識された部分を正しい用語に自動で置き換えます。麺→面、中断→中段などの定番の誤変換は最初から組み込み済みです。登録内容はこの端末に保存されます。</p>
+    <p class="hint">用語と読みがなを登録すると、読みがな（ひらがな・カタカナ）のまま認識された部分を正しい用語に自動で置き換えます。定番の誤変換（麺→面、中断→中段など）は組み込み済み。字幕を手で直したときも、その修正を辞書に登録するか確認します。登録内容はこの端末に保存されます。</p>
     <div class="dictAdd">
       <input type="text" id="dictWord" placeholder="単語（例: 蹲踞）">
       <input type="text" id="dictReading" placeholder="読みがな（例: そんきょ）">
@@ -90,15 +94,16 @@
     </div>
     <ul id="dictList" class="itemList"></ul>
     <details>
-      <summary>誤変換の直接補正ルール（上級）</summary>
-      <p class="hint">特定の誤変換をピンポイントで直したいときは「誤→正」の形で1行ずつ書いてください。</p>
+      <summary>誤変換の直接補正ルール（編集可）</summary>
+      <p class="hint">「誤→正」の形で1行ずつ。字幕の手動修正から自動登録されたルールもここに入ります。行を消せば削除できます。</p>
       <textarea id="dictUser" rows="4" placeholder="例：&#10;麺がおいしい→面が惜しい&#10;誠意→正眼"></textarea>
+    </details>
+    <details>
+      <summary>組み込みの補正ルール一覧</summary>
+      <ul id="dictBuiltinList" class="builtinList"></ul>
     </details>
     <button id="dictApplyBtn" class="bigBtn">📖 今ある字幕に一括適用</button>
   </div>
-  <ul id="subList" class="itemList subEdit"><li class="empty">字幕がありません。下のボタンで追加できます。</li></ul>
-  <button id="addSubBtn" class="bigBtn">＋ 現在位置に字幕を追加</button>
-  <button id="toStep4" class="bigBtn primary">次へ：動画を書き出す ▶</button>
 </section>
 
 <!-- Step 4: 書き出し -->
@@ -147,6 +152,6 @@
 </footer>
 
 <canvas id="exportCanvas" hidden></canvas>
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
