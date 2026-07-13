@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>剣道ムービーコーチ</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎬</text></svg>">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -80,25 +80,22 @@
   <h2>Step 3　字幕を確認・修正する</h2>
   <p class="hint">誤認識を直したり、時間をずらしたりできます。▶で該当場面を再生して確認できます。時間は「分:秒.小数」形式（例 1:23.5）。</p>
 
-  <div class="infoBox" id="whisperBox">
-    <b>🎯 字幕の精度が低いときは</b><br>
-    録音したコメント音声を、この端末の中でAI（Whisper）が聞き直して字幕を作り直します。音声が外部に送信されることはありません。初回のみAIモデルのダウンロードがあります（Wi-Fi推奨・2回目からは不要）。
-    <div class="sliderRow">
-      <select id="whisperModel">
-        <option value="onnx-community/whisper-base" selected>標準モデル（高精度・約80MB）</option>
-        <option value="onnx-community/whisper-tiny">軽量モデル（速い・約40MB）</option>
-      </select>
+  <div class="infoBox" id="dictBox">
+    <b>📖 剣道用語辞書</b>
+    <p class="hint">用語と読みがなを登録すると、読みがな（ひらがな・カタカナ）のまま認識された部分を正しい用語に自動で置き換えます。麺→面、中断→中段などの定番の誤変換は最初から組み込み済みです。登録内容はこの端末に保存されます。</p>
+    <div class="dictAdd">
+      <input type="text" id="dictWord" placeholder="単語（例: 蹲踞）">
+      <input type="text" id="dictReading" placeholder="読みがな（例: そんきょ）">
+      <button id="dictAddBtn">＋追加</button>
     </div>
-    <button id="whisperBtn" class="bigBtn">🎯 AIで字幕を作り直す</button>
-    <div id="whisperStatus" class="hint" hidden></div>
-  </div>
-
-  <details id="dictBox" class="infoBox">
-    <summary>📖 剣道用語の自動補正辞書</summary>
-    <p class="hint">音声認識の結果に自動で適用されます（例: 麺→面、中断→中段、冗談→上段、斬新→残心）。よくある誤変換があれば「誤→正」の形で1行ずつ追加してください（この端末に保存されます）。</p>
-    <textarea id="dictUser" rows="4" placeholder="例：&#10;麺がおいしい→面が惜しい&#10;誠意→正眼"></textarea>
+    <ul id="dictList" class="itemList"></ul>
+    <details>
+      <summary>誤変換の直接補正ルール（上級）</summary>
+      <p class="hint">特定の誤変換をピンポイントで直したいときは「誤→正」の形で1行ずつ書いてください。</p>
+      <textarea id="dictUser" rows="4" placeholder="例：&#10;麺がおいしい→面が惜しい&#10;誠意→正眼"></textarea>
+    </details>
     <button id="dictApplyBtn" class="bigBtn">📖 今ある字幕に一括適用</button>
-  </details>
+  </div>
   <ul id="subList" class="itemList subEdit"><li class="empty">字幕がありません。下のボタンで追加できます。</li></ul>
   <button id="addSubBtn" class="bigBtn">＋ 現在位置に字幕を追加</button>
   <button id="toStep4" class="bigBtn primary">次へ：動画を書き出す ▶</button>
@@ -150,6 +147,6 @@
 </footer>
 
 <canvas id="exportCanvas" hidden></canvas>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

@@ -750,9 +750,33 @@ function parseUserDict(text) {
   return rules;
 }
 
+const toKatakana = (s) => s.replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+const toHiragana = (s) => s.replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+
+// ユーザー登録の単語（{w: 単語, r: 読みがな}）
+let userWords = [];
+try { userWords = JSON.parse(localStorage.getItem("kendoWordsUser") || "[]"); } catch (_) {}
+function saveUserWords() {
+  try { localStorage.setItem("kendoWordsUser", JSON.stringify(userWords)); } catch (_) {}
+}
+
 function getDict() {
-  // ユーザー定義を優先して先に適用
-  return [...parseUserDict($("dictUser").value), ...KENDO_DICT_DEFAULT];
+  const rules = [];
+  // 1) 登録単語: 読みがな（ひらがな・カタカナ両方）→ 単語
+  for (const { w, r } of userWords) {
+    if (!w || !r) continue;
+    const hira = toHiragana(r);
+    const kata = toKatakana(r);
+    if (hira !== w) rules.push([hira, w]);
+    if (kata !== w && kata !== hira) rules.push([kata, w]);
+  }
+  // 2) 直接補正ルール（誤→正）
+  rules.push(...parseUserDict($("dictUser").value));
+  // 3) 組み込みルール
+  rules.push(...KENDO_DICT_DEFAULT);
+  // 長いパターンから先に適用（部分一致による誤置換を防ぐ）
+  rules.sort((a, b) => b[0].length - a[0].length);
+  return rules;
 }
 
 function applyKendoDict(text) {
@@ -760,7 +784,57 @@ function applyKendoDict(text) {
   return text;
 }
 
-// ユーザー辞書は端末に保存
+function renderDictList() {
+  const ul = $("dictList");
+  ul.innerHTML = "";
+  if (userWords.length === 0) {
+    ul.innerHTML = '<li class="empty">登録された単語はまだありません</li>';
+    return;
+  }
+  userWords.forEach((entry, idx) => {
+    const li = document.createElement("li");
+    const row = document.createElement("div");
+    row.className = "segRow";
+    const info = document.createElement("span");
+    info.className = "segInfo";
+    info.textContent = `${entry.w}（${entry.r}）`;
+    const del = document.createElement("button");
+    del.textContent = "削除";
+    del.className = "del";
+    del.onclick = () => {
+      userWords.splice(idx, 1);
+      saveUserWords();
+      renderDictList();
+    };
+    row.append(info, del);
+    li.appendChild(row);
+    ul.appendChild(li);
+  });
+}
+
+$("dictAddBtn").addEventListener("click", () => {
+  const w = $("dictWord").value.trim();
+  const r = $("dictReading").value.trim();
+  if (!w || !r) {
+    alert("単語と読みがなの両方を入力してください。");
+    return;
+  }
+  if (!/^[ぁ-ゖァ-ヶー・\s]+$/.test(r)) {
+    alert("読みがなは、ひらがな・カタカナで入力してください。");
+    return;
+  }
+  const i = userWords.findIndex((e) => e.w === w);
+  if (i >= 0) userWords[i] = { w, r };
+  else userWords.push({ w, r });
+  saveUserWords();
+  renderDictList();
+  $("dictWord").value = "";
+  $("dictReading").value = "";
+});
+
+renderDictList();
+
+// 直接補正ルールも端末に保存
 try {
   $("dictUser").value = localStorage.getItem("kendoDictUser") || "";
 } catch (_) {}
@@ -776,179 +850,6 @@ $("dictApplyBtn").addEventListener("click", () => {
   }
   renderSubList();
   alert(changed ? `${changed}件の字幕を補正しました。` : "補正対象はありませんでした。");
-});
-
-/* ---------------- 高精度字幕（Whisper・完全オンデバイス） ---------------- */
-
-let whisperPipe = null;
-let whisperModelId = null;
-let whisperRunning = false;
-
-function whisperStatus(msg) {
-  const el = $("whisperStatus");
-  el.hidden = false;
-  el.textContent = msg;
-}
-
-// エネルギーベースの簡易VAD: 話している区間 [{start,end}]（秒）を返す
-// 無音・環境音の区間をWhisperに渡さないことで幻聴（「(音楽)」等）を防ぐ
-function findVoicedClips(f32, sr) {
-  const win = Math.round(sr * 0.03);
-  const energies = [];
-  for (let i = 0; i + win <= f32.length; i += win) {
-    let s = 0;
-    for (let j = i; j < i + win; j++) s += f32[j] * f32[j];
-    energies.push(Math.sqrt(s / win));
-  }
-  if (!energies.length) return [];
-  const sorted = [...energies].slice().sort((a, b) => a - b);
-  const noise = sorted[Math.floor(sorted.length * 0.2)];
-  const thr = Math.max(0.006, noise * 3);
-
-  const winSec = win / sr;
-  const raw = [];
-  let cur = null;
-  for (let i = 0; i < energies.length; i++) {
-    if (energies[i] >= thr) {
-      if (!cur) cur = { start: i * winSec, end: (i + 1) * winSec };
-      else cur.end = (i + 1) * winSec;
-    } else if (cur && i * winSec - cur.end > 0.5) {
-      raw.push(cur);
-      cur = null;
-    }
-  }
-  if (cur) raw.push(cur);
-
-  const total = f32.length / sr;
-  const clips = [];
-  for (const r of raw) {
-    if (r.end - r.start < 0.35) continue;
-    const start = Math.max(0, r.start - 0.2);
-    const end = Math.min(total, r.end + 0.3);
-    if (clips.length && start - clips[clips.length - 1].end < 0.25) {
-      clips[clips.length - 1].end = end;
-    } else {
-      clips.push({ start, end });
-    }
-  }
-  // Whisperの1回あたり上限（25秒）で分割
-  const out = [];
-  for (const c of clips) {
-    let s = c.start;
-    while (c.end - s > 25) { out.push({ start: s, end: s + 25 }); s += 25; }
-    out.push({ start: s, end: c.end });
-  }
-  return out;
-}
-
-// Whisperが無音・雑音時に出しがちな定型句（幻聴）を除去
-const HALLUCINATION_PATTERNS = [
-  /^[（(\[【♪～\s].*[)）\]】♪～\s]$/,
-  /ご視聴ありがとう/,
-  /チャンネル登録/,
-  /高評価/,
-  /また会いましょう/,
-  /^字幕/,
-  /おやすみなさい/,
-];
-function isHallucination(text) {
-  return HALLUCINATION_PATTERNS.some((re) => re.test(text));
-}
-
-// Whisper入力用に16kHzモノラルへリサンプリング
-async function toWhisperInput(buffer) {
-  const len = Math.ceil(buffer.duration * 16000);
-  const off = new OfflineAudioContext(1, len, 16000);
-  const src = off.createBufferSource();
-  src.buffer = buffer;
-  src.connect(off.destination);
-  src.start();
-  const rendered = await off.startRendering();
-  return rendered.getChannelData(0);
-}
-
-$("whisperBtn").addEventListener("click", async () => {
-  if (whisperRunning) return;
-  if (state.segments.length === 0) {
-    alert("録音がありません。先にStep 2でコメントを録音してください。");
-    return;
-  }
-  whisperRunning = true;
-  $("whisperBtn").disabled = true;
-  try {
-    const modelId = $("whisperModel").value;
-    if (!whisperPipe || whisperModelId !== modelId) {
-      whisperStatus("AIライブラリを読み込み中…");
-      const { pipeline } = await import(
-        "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.2/dist/transformers.min.js"
-      );
-      let lastPct = -1;
-      whisperStatus("AIモデルを準備中…（初回はダウンロードに数分かかります）");
-      whisperPipe = await pipeline("automatic-speech-recognition", modelId, {
-        dtype: "q8",
-        progress_callback: (p) => {
-          if (p.status === "progress" && p.file && p.file.endsWith(".onnx")) {
-            const pct = Math.round(p.progress || 0);
-            if (pct !== lastPct) {
-              lastPct = pct;
-              whisperStatus(`AIモデルをダウンロード中… ${pct}%（初回のみ）`);
-            }
-          }
-        },
-      });
-      whisperModelId = modelId;
-    }
-
-    for (let i = 0; i < state.segments.length; i++) {
-      const seg = state.segments[i];
-      const audioData = await toWhisperInput(seg.buffer);
-      // 話している区間だけを切り出して個別に認識（無音での幻聴を防ぎ、タイミングも正確になる）
-      const clips = findVoicedClips(audioData, 16000);
-      if (!clips.length) continue; // 発話が見つからなければ既存の字幕を残す
-
-      const newSubs = [];
-      for (let k = 0; k < clips.length; k++) {
-        const clip = clips[k];
-        whisperStatus(`音声を認識中… コメント${i + 1}/${state.segments.length} の ${k + 1}/${clips.length}（画面が固まったように見えても処理中です）`);
-        await new Promise((r) => setTimeout(r, 30));
-        const slice = audioData.subarray(
-          Math.floor(clip.start * 16000),
-          Math.floor(clip.end * 16000)
-        );
-        const out = await whisperPipe(slice, {
-          language: "japanese",
-          task: "transcribe",
-        });
-        let text = (out.text || "").trim();
-        if (!text || isHallucination(text)) continue;
-        text = applyKendoDict(text);
-        const s0 = seg.start + clip.start;
-        newSubs.push({
-          id: state.nextId++,
-          start: s0,
-          end: Math.max(s0 + 0.8, seg.start + clip.end),
-          text,
-          segId: seg.id,
-        });
-      }
-
-      if (newSubs.length) {
-        // このコメントの既存字幕（自動生成分）を置き換える。手動追加(segId=null)は残す
-        state.subtitles = state.subtitles.filter((s) => s.segId !== seg.id);
-        state.subtitles.push(...newSubs);
-      }
-    }
-    state.subtitles.sort((a, b) => a.start - b.start);
-    renderSubList();
-    whisperStatus("✅ 完了しました。字幕を確認・修正してください。");
-  } catch (err) {
-    console.error(err);
-    whisperStatus("⚠️ エラーが発生しました: " + (err && err.message ? err.message : err) +
-      "（通信環境を確認するか、軽量モデルをお試しください）");
-  } finally {
-    whisperRunning = false;
-    $("whisperBtn").disabled = false;
-  }
 });
 
 /* ---------------- Step 4: 書き出し ---------------- */

@@ -308,6 +308,33 @@ main { padding: 8px 12px 24px; }
   font-weight: 700;
   cursor: pointer;
   font-size: 14px;
+  color: var(--sub);
+  margin-top: 10px;
+}
+.dictAdd {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+.dictAdd input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 8px;
+  border-radius: 8px;
+  border: 1px solid #39424e;
+  background: var(--panel2);
+  color: var(--text);
+  font-size: 15px;
+}
+.dictAdd button {
+  border: none;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 #dictBox textarea {
   width: 100%;
