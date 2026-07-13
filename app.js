@@ -605,8 +605,25 @@ function startRecognition() {
   };
 
   recog.onerror = (e) => {
+    // no-speech（無音）は正常運用でも頻発するので無視。それ以外は理由を画面に出す
+    if (e.error === "no-speech" || e.error === "aborted") return;
+    let msg;
+    switch (e.error) {
+      case "not-allowed":
+      case "service-not-allowed":
+        msg = "音声認識が許可されていません。iPhoneの「設定 → 一般 → キーボード → 音声入力」をオンにし、Safariのマイク許可も確認してください。字幕はStep 3で手入力もできます。";
+        break;
+      case "network":
+        msg = "音声認識サーバーに接続できませんでした（通信環境が原因の可能性）。Wi-Fi/電波を確認してください。字幕はStep 3で手入力できます。";
+        break;
+      case "audio-capture":
+        msg = "マイクから音声を取得できませんでした。字幕はStep 3で手入力できます。";
+        break;
+      default:
+        msg = "音声認識が動作しませんでした（" + e.error + "）。字幕はStep 3で手入力できます。";
+    }
+    warnRecogConflict(msg);
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-      warnRecogConflict("音声認識が許可されませんでした。字幕はStep 3で手入力できます。");
       $("useRecog").checked = false;
       recState.recog = null;
     }
@@ -624,7 +641,11 @@ function startRecognition() {
   };
 
   recState.recog = recog;
-  try { recog.start(); } catch (_) {}
+  try {
+    recog.start();
+  } catch (err) {
+    warnRecogConflict("音声認識を開始できませんでした（" + (err && err.name ? err.name : err) + "）。字幕はStep 3で手入力できます。");
+  }
 }
 
 function stopRecognition() {
